@@ -125,6 +125,11 @@
   .prob-table table.tw { min-width: 420px; }
   .footer-note { font-family: var(--font-sans); font-size: 0.82rem; color: var(--inkMuted); margin-top: 60px; line-height: 1.5; }
 
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .hl-den, .hl-num { color: var(--ink) !important; }
+  .sel-desc { font-family: var(--font-sans); font-size: 0.92rem; line-height: 1.5; margin-top: 10px; }
+  .guided-step:focus, .final-note:focus { outline: 2px solid var(--amber); outline-offset: 3px; }
+  .legend-h { font-size: 1.12rem; font-weight: 600; margin: 0 0 8px; }
   @media (min-width: 760px) {
     .venn-grid { grid-template-columns: 1.35fr 1fr; align-items: start; }
   }
@@ -138,7 +143,7 @@
 </head>
 <body>
 <div class="app">
-<div class="wrap">
+<main class="wrap">
 
   <p class="kicker">PHW142 interactive module</p>
   <h1>Rules of Probability Explorer</h1>
@@ -148,7 +153,7 @@
   <p class="prose">This explorer has three parts. The Venn diagram shows how the addition and complement rules work. The two-way table shows joint, marginal, and conditional probability, and how to check whether two events are independent. The practice sections let you work problems with instant feedback, either all at once or one step at a time.</p>
 
   <div class="panel" aria-labelledby="legend-h">
-    <h3 id="legend-h" style="margin-top:0">Symbols used in this module</h3>
+    <h2 id="legend-h" class="legend-h">Symbols used in this module</h2>
     <dl class="legend" id="legend"></dl>
   </div>
 
@@ -159,9 +164,10 @@
   <div class="panel">
     <div class="venn-grid">
       <div>
-        <svg class="venn-svg" viewBox="0 0 480 290" role="img" aria-labelledby="venn-title venn-desc" id="venn">
+        <svg class="venn-svg" viewBox="0 0 480 290" role="img" aria-labelledby="venn-title venn-desc venn-summary" id="venn">
           <title id="venn-title">Venn diagram of events A and B</title>
           <desc id="venn-desc">Two overlapping circles, A and B, inside a rectangle representing the sample space. The selected region is shaded.</desc>
+          <desc id="venn-summary"></desc>
           <defs>
             <clipPath id="clipA"><circle cx="190" cy="148" r="100"/></clipPath>
             <mask id="maskNotA"><rect x="0" y="0" width="480" height="290" fill="white"/><circle cx="190" cy="148" r="100" fill="black"/></mask>
@@ -184,6 +190,7 @@
         </svg>
         <div class="region-picker" role="group" aria-label="Choose a region" id="region-picker"></div>
         <p class="region-desc" id="region-desc"></p>
+        <div class="sr-only" id="venn-live" aria-live="polite"></div>
       </div>
       <div>
         <div class="sliders">
@@ -228,6 +235,7 @@
       <button type="button" class="action-btn" id="pg-reset">Reset counts</button>
     </div>
 
+    <p class="sel-desc" id="pg-sel-desc" aria-live="polite"></p>
     <div class="results" id="pg-results" role="group" aria-label="Probabilities from the table"></div>
 
     <h3>Are A and B independent?</h3>
@@ -255,7 +263,7 @@
   <div class="panel" id="p3"></div>
 
   <p class="footer-note">All scenarios and probabilities in this module are hypothetical and are chosen to illustrate the rules. Answers can be entered as decimals (0.35), fractions (7/20), or percents (35%). Answers rounded to two decimal places are accepted.</p>
-</div>
+</main>
 </div>
 
 <script>
@@ -347,13 +355,18 @@
     neither: 'Everything outside both circles.'
   };
 
+  var vennNotice = '';
   function clampAB() {
     var a = +slA.value, b = +slB.value;
     var lo = Math.max(0, r2(a + b - 1)), hi = Math.min(a, b);
-    var ab = +slAB.value;
+    var ab0 = +slAB.value, ab = ab0;
     if (ab > hi) ab = hi;
     if (ab < lo) ab = lo;
     slAB.value = ab.toFixed(2);
+    vennNotice = '';
+    if (Math.abs(ab - ab0) > 1e-9) {
+      vennNotice = 'P(A and B) was changed to ' + ab.toFixed(2) + (ab < ab0 ? ' so that it is no larger than P(A) or P(B).' : ' so that P(A or B) is no larger than 1.');
+    }
     $('ab-range').textContent = 'Possible values: ' + lo.toFixed(2) + ' to ' + hi.toFixed(2) + '. The overlap cannot be larger than either event, and A or B cannot exceed 1.';
     return { a: a, b: b, ab: r2(+slAB.value) };
   }
@@ -393,7 +406,17 @@
     s += indep ? 'These are equal, so A and B are independent.' : 'These are not equal, so A and B are not independent.';
     if (disjoint && a > 0 && b > 0) s += '<br>Disjoint events that each have some chance of happening are never independent: knowing A happened tells you B did not.';
     $('venn-status').innerHTML = s;
+
+    var regionLabel = REGIONS.filter(function (r) { return r.id === region; })[0].label;
+    var result = { union: uni, inter: ab, notA: 1 - a, notB: 1 - b, aOnly: a - ab, bOnly: b - ab, neither: 1 - uni }[region];
+    var summary = 'Shaded region: ' + regionLabel + ', probability ' + f2(result) + '. Region probabilities: A only ' + f2(a - ab) + ', both A and B ' + f2(ab) + ', B only ' + f2(b - ab) + ', neither ' + f2(1 - uni) + '.';
+    $('venn-summary').textContent = summary;
+    var live = (vennNotice ? vennNotice + ' ' : '') + summary + ' ' + (disjoint ? 'A and B are disjoint.' : '') + (indep ? ' A and B are independent.' : ' A and B are not independent.');
+    clearTimeout(vennLiveTimer);
+    vennLiveTimer = setTimeout(function () { $('venn-live').textContent = live; }, 500);
+    $('ab-range').textContent = $('ab-range').textContent + (vennNotice ? ' ' + vennNotice : '');
   }
+  var vennLiveTimer = null;
   [slA, slB, slAB].forEach(function (el) { el.addEventListener('input', updateVenn); });
   $('venn-legend').innerHTML = M('\\cup') + ' means "or," including both. ' + M('\\cap') + ' means "and." ' + M("A'") + ' means "not A." The numbers inside the diagram are the probabilities of each region, and all four add to 1.';
   updateVenn();
@@ -410,7 +433,7 @@
 
   function buildPgTable() {
     var c = TABLE_CTX[pgCtx];
-    var h = '<thead><tr><th class="rowh" scope="col"></th>' +
+    var h = '<thead><tr><td class="rowh"><span class="sr-only">Group</span></td>' +
       '<th scope="col" data-k="c1h"><span class="ev-tag">B:</span>' + c.cols[0] + '</th>' +
       '<th scope="col">' + c.cols[1] + '</th><th scope="col" class="total">Total</th></tr></thead><tbody>';
     h += '<tr><th class="rowh" scope="row"><span class="ev-tag">A:</span>' + c.rows[0] + '</th>' +
@@ -446,12 +469,12 @@
     var r1 = a + b, r2v = c + d, c1 = a + c, c2 = b + d, N = r1 + r2v;
     setCell('r1', r1); setCell('r2', r2v); setCell('c1', c1); setCell('c2', c2); setCell('N', N);
     var items = [
-      { id: 'pA', name: 'Marginal probability of A', tex: fracTex('P(A)', r1, N), num: ['r1'], den: ['N'] },
-      { id: 'pB', name: 'Marginal probability of B', tex: fracTex('P(B)', c1, N), num: ['c1'], den: ['N'] },
-      { id: 'pAB', name: 'Joint probability of A and B', tex: fracTex('P(A \\cap B)', a, N), num: ['a'], den: ['N'] },
-      { id: 'bGivenA', name: 'Conditional probability of B, given A', tex: fracTex('P(B \\mid A)', a, r1), num: ['a'], den: ['r1'] },
-      { id: 'aGivenB', name: 'Conditional probability of A, given B', tex: fracTex('P(A \\mid B)', a, c1), num: ['a'], den: ['c1'] },
-      { id: 'bGivenNotA', name: 'Conditional probability of B, given not A', tex: fracTex("P(B \\mid A')", c, r2v), num: ['c'], den: ['r2'] }
+      { id: 'pA', name: 'Marginal probability of A', say: 'P(A)', tex: fracTex('P(A)', r1, N), num: ['r1'], den: ['N'] },
+      { id: 'pB', name: 'Marginal probability of B', say: 'P(B)', tex: fracTex('P(B)', c1, N), num: ['c1'], den: ['N'] },
+      { id: 'pAB', name: 'Joint probability of A and B', say: 'P(A and B)', tex: fracTex('P(A \\cap B)', a, N), num: ['a'], den: ['N'] },
+      { id: 'bGivenA', name: 'Conditional probability of B, given A', say: 'P(B given A)', tex: fracTex('P(B \\mid A)', a, r1), num: ['a'], den: ['r1'] },
+      { id: 'aGivenB', name: 'Conditional probability of A, given B', say: 'P(A given B)', tex: fracTex('P(A \\mid B)', a, c1), num: ['a'], den: ['c1'] },
+      { id: 'bGivenNotA', name: 'Conditional probability of B, given not A', say: 'P(B given not A)', tex: fracTex("P(B \\mid A')", c, r2v), num: ['c'], den: ['r2'] }
     ];
     var box = $('pg-results');
     box.innerHTML = items.map(function (it) {
@@ -461,6 +484,17 @@
       Array.prototype.forEach.call($('pg-table').querySelectorAll('td, th'), function (el) { el.classList.remove('hl-num', 'hl-den'); });
       var it = items.filter(function (x) { return x.id === pgSel; })[0];
       if (!it) return;
+      var cx = TABLE_CTX[pgCtx];
+      var vals = { a: a, c: c, r1: r1, r2: r2v, c1: c1, N: N };
+      var words = {
+        a: 'people in both A and B (' + cx.rows[0].toLowerCase() + ', ' + cx.cols[0].toLowerCase() + ')',
+        c: 'people in B but not A (' + cx.rows[1].toLowerCase() + ', ' + cx.cols[0].toLowerCase() + ')',
+        r1: 'everyone in A (' + cx.rows[0].toLowerCase() + ')',
+        r2: 'everyone not in A (' + cx.rows[1].toLowerCase() + ')',
+        c1: 'everyone in B (' + cx.cols[0].toLowerCase() + ')',
+        N: 'everyone in the table'
+      };
+      $('pg-sel-desc').textContent = 'Selected: ' + it.say + '. Numerator: ' + vals[it.num[0]] + ', ' + words[it.num[0]] + '. Denominator: ' + vals[it.den[0]] + ', ' + words[it.den[0]] + '.';
       it.num.forEach(function (k) { var el = $('pg-table').querySelector('[data-k="' + k + '"]'); if (el) el.classList.add('hl-num'); });
       it.den.forEach(function (k) { var el = $('pg-table').querySelector('[data-k="' + k + '"]'); if (el) el.classList.add('hl-den'); });
     }
@@ -518,15 +552,27 @@
   var HINT = '<div class="entry-hint">Enter a decimal (0.35), a fraction (7/20), or a percent (35%).</div>';
 
   function choicesHTML(options) {
-    return '<div class="choices">' + options.map(function (o, i) { return '<button type="button" class="choice" data-i="' + i + '">' + o + '</button>'; }).join('') + '</div>';
+    var lab = arguments[1] ? ' role="group" aria-labelledby="' + arguments[1] + '"' : '';
+    return '<div class="choices"' + lab + '>' + options.map(function (o, i) { return '<button type="button" class="choice" aria-pressed="false" data-i="' + i + '">' + o + '</button>'; }).join('') + '</div>';
+  }
+  var UID = 0;
+  function markChoice(container, btn, right) {
+    Array.prototype.forEach.call(container.querySelectorAll('.choice'), function (x) {
+      x.classList.remove('right', 'wrong'); x.setAttribute('aria-pressed', 'false');
+      var t = x.querySelector('.sr-status'); if (t) t.remove();
+    });
+    btn.classList.add(right ? 'right' : 'wrong'); btn.setAttribute('aria-pressed', 'true');
+    var tag = document.createElement('span'); tag.className = 'sr-only sr-status'; tag.textContent = right ? ', correct' : ', incorrect';
+    btn.appendChild(tag);
   }
   function isRight(ans, k) { return Array.isArray(ans) ? ans.indexOf(k) >= 0 : ans === k; }
 
   function mountQuick(el, prob) {
+    var qid = 'q' + (++UID);
     var h = '<div class="context">' + prob.context + '</div>' + (prob.givens ? '<div class="givens">' + prob.givens + '</div>' : '') +
-      '<div class="question">' + prob.question + '</div>';
-    if (prob.kind === 'choice') h += choicesHTML(prob.options);
-    else h += '<div class="fill-row"><input type="text" inputmode="decimal" aria-label="Your answer"><button type="button" class="action-btn primary q-check">Check</button></div>' + HINT;
+      '<div class="question" id="' + qid + '">' + prob.question + '</div>';
+    if (prob.kind === 'choice') h += choicesHTML(prob.options, qid);
+    else h += '<div class="fill-row"><input type="text" inputmode="decimal" aria-label="Your answer" aria-describedby="' + qid + '"><button type="button" class="action-btn primary q-check">Check</button></div>' + HINT;
     h += '<div class="feedback" aria-live="polite"></div>' +
       '<div class="btn-row"><button type="button" class="action-btn q-sol">Show the steps</button><button type="button" class="action-btn q-new">New problem</button></div>' +
       '<div class="solution" hidden>' + prob.solution + '</div>';
@@ -536,9 +582,9 @@
       Array.prototype.forEach.call(el.querySelectorAll('.choice'), function (b) {
         b.addEventListener('click', function () {
           var k = +b.getAttribute('data-i');
-          Array.prototype.forEach.call(el.querySelectorAll('.choice'), function (x) { x.classList.remove('right', 'wrong'); });
-          if (isRight(prob.answer, k)) { b.classList.add('right'); fb.textContent = prob.okMsg || 'Correct.'; fb.className = 'feedback correct'; }
-          else { b.classList.add('wrong'); fb.textContent = (prob.why && prob.why[k]) || 'Not quite. Try again, or show the steps.'; fb.className = 'feedback incorrect'; }
+          markChoice(el, b, isRight(prob.answer, k));
+          if (isRight(prob.answer, k)) { fb.textContent = prob.okMsg || 'Correct.'; fb.className = 'feedback correct'; }
+          else { fb.textContent = (prob.why && prob.why[k]) || 'Not quite. Try again, or show the steps.'; fb.className = 'feedback incorrect'; }
         });
       });
     } else {
@@ -562,16 +608,18 @@
   function mountGuided(el, prob) {
     var h = '<div class="context">' + prob.context + '</div>' + (prob.givens ? '<div class="givens">' + prob.givens + '</div>' : '') +
       '<div class="question">' + prob.question + '</div>';
+    var base = 'g' + (++UID);
     prob.steps.forEach(function (s, i) {
-      h += '<div class="guided-step' + (i > 0 ? ' locked' : '') + '">' +
-        '<div class="step-label">Step ' + (i + 1) + ' of ' + prob.steps.length + (s.title ? ': ' + s.title : '') + '</div>' +
-        '<div class="step-prompt">' + s.prompt + '</div>' +
-        (s.kind === 'choice' ? choicesHTML(s.options)
-          : '<div class="fill-row"><input type="text" inputmode="decimal" aria-label="Answer for step ' + (i + 1) + '"><button type="button" class="action-btn primary g-check">Check</button></div>' + (s.count ? '' : HINT)) +
-        (s.tip ? '<div class="tip">' + s.tip + '</div>' : '') +
-        '<div class="feedback" aria-live="polite"></div></div>';
+      var id = base + '-' + i;
+      h += '<div class="guided-step' + (i > 0 ? ' locked' : '') + '" role="group" id="' + id + '" aria-labelledby="' + id + '-l ' + id + '-p">' +
+        '<div class="step-label" id="' + id + '-l">Step ' + (i + 1) + ' of ' + prob.steps.length + (s.title ? ': ' + s.title : '') + '</div>' +
+        '<div class="step-prompt" id="' + id + '-p">' + s.prompt + '</div>' +
+        (s.kind === 'choice' ? choicesHTML(s.options, id + '-p')
+          : '<div class="fill-row"><input type="text" inputmode="decimal" aria-label="Answer for step ' + (i + 1) + '" aria-describedby="' + id + '-p' + (s.tip ? ' ' + id + '-t' : '') + '"><button type="button" class="action-btn primary g-check">Check</button></div>' + (s.count ? '' : HINT)) +
+        (s.tip ? '<div class="tip" id="' + id + '-t">' + s.tip + '</div>' : '') +
+        '<div class="feedback" id="' + id + '-f" aria-live="polite"></div></div>';
     });
-    h += '<div class="final-note" hidden>' + (prob.final || '') + '</div>' +
+    h += '<div class="final-note" role="group" id="' + base + '-fin" tabindex="-1" hidden>' + (prob.final || '') + '</div>' +
       '<div class="btn-row"><button type="button" class="action-btn q-new">New problem</button></div>';
     el.innerHTML = h;
     var stepEls = el.querySelectorAll('.guided-step');
@@ -581,17 +629,28 @@
       function ok(msg) {
         fb.textContent = msg || 'Correct.'; fb.className = 'feedback correct';
         se.classList.add('done'); if (tip) tip.classList.remove('emph');
-        if (i + 1 < stepEls.length) { stepEls[i + 1].classList.remove('locked'); stepEls[i + 1].inert = false; }
-        else if (prob.final) { el.querySelector('.final-note').hidden = false; }
+        var fid = base + '-' + i + '-f';
+        if (i + 1 < stepEls.length) {
+          var nx = stepEls[i + 1], nid = base + '-' + (i + 1);
+          nx.classList.remove('locked'); nx.inert = false;
+          nx.setAttribute('tabindex', '-1');
+          nx.setAttribute('aria-labelledby', fid + ' ' + nid + '-l ' + nid + '-p');
+          nx.focus({ preventScroll: false });
+        } else if (prob.final) {
+          var fin = el.querySelector('.final-note');
+          fin.hidden = false;
+          fin.setAttribute('aria-labelledby', fid + ' ' + base + '-fin');
+          fin.focus();
+        }
       }
       function bad(msg) { fb.textContent = msg; fb.className = 'feedback incorrect'; if (tip) tip.classList.add('emph'); }
       if (s.kind === 'choice') {
         Array.prototype.forEach.call(se.querySelectorAll('.choice'), function (b) {
           b.addEventListener('click', function () {
             var k = +b.getAttribute('data-i');
-            Array.prototype.forEach.call(se.querySelectorAll('.choice'), function (x) { x.classList.remove('right', 'wrong'); });
-            if (isRight(s.answer, k)) { b.classList.add('right'); ok((s.okMsgs && s.okMsgs[k]) || s.okMsg); }
-            else { b.classList.add('wrong'); bad((s.why && s.why[k]) || 'Not this one. Read the tip and try again.'); }
+            markChoice(se, b, isRight(s.answer, k));
+            if (isRight(s.answer, k)) { ok((s.okMsgs && s.okMsgs[k]) || s.okMsg); }
+            else { bad((s.why && s.why[k]) || 'Not this one. Read the tip and try again.'); }
           });
         });
       } else {
@@ -621,8 +680,24 @@
     function newG() { mountGuided(gEl, toGuided(gen())); gEl.querySelector('.q-new').addEventListener('click', newG); }
     newQ(); newG();
     var tq = $(rootId + '-tq'), tg = $(rootId + '-tg');
-    tq.addEventListener('click', function () { tq.setAttribute('aria-selected', 'true'); tg.setAttribute('aria-selected', 'false'); qEl.hidden = false; gEl.hidden = true; });
-    tg.addEventListener('click', function () { tg.setAttribute('aria-selected', 'true'); tq.setAttribute('aria-selected', 'false'); gEl.hidden = false; qEl.hidden = true; });
+    function sel(t) {
+      var q = t === tq;
+      tq.setAttribute('aria-selected', String(q)); tg.setAttribute('aria-selected', String(!q));
+      tq.tabIndex = q ? 0 : -1; tg.tabIndex = q ? -1 : 0;
+      qEl.hidden = !q; gEl.hidden = q;
+    }
+    tq.addEventListener('click', function () { sel(tq); });
+    tg.addEventListener('click', function () { sel(tg); });
+    [tq, tg].forEach(function (t) {
+      t.addEventListener('keydown', function (e) {
+        var other = t === tq ? tg : tq, target = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') target = other;
+        else if (e.key === 'Home') target = tq;
+        else if (e.key === 'End') target = tg;
+        if (target) { e.preventDefault(); sel(target); target.focus(); }
+      });
+    });
+    sel(tq);
   }
 
   // ================= PRACTICE 1: VENN PROBLEMS =================
@@ -745,8 +820,9 @@
   function vennQuick(d) {
     return { context: vennContext(d), givens: vennGivens(d), question: vennQuestion(d), kind: 'num', answer: d.answer, show: f2(d.answer), diagnose: vennDiagnose(d), solution: vennSolution(d) };
   }
-  var RULE_DISJ = M('P(A \\text{ or } B) = P(A) + P(B)');
-  var RULE_GEN = M('P(A \\text{ or } B) = P(A) + P(B) - P(A \\text{ and } B)');
+  function mathOpt(tex, spoken) { return '<span aria-hidden="true">' + M(tex) + '</span><span class="sr-only">' + spoken + '</span>'; }
+  var RULE_DISJ = mathOpt('P(A \\text{ or } B) = P(A) + P(B)', 'P of A or B equals P of A plus P of B');
+  var RULE_GEN = mathOpt('P(A \\text{ or } B) = P(A) + P(B) - P(A \\text{ and } B)', 'P of A or B equals P of A plus P of B minus P of A and B');
   function vennGuided(d) {
     var c = d.ctx, steps = [];
     var sq = ' = \\;\\square';
@@ -828,7 +904,7 @@
   }
   function tableHTML(d) {
     var c = d.ctx;
-    return '<div class="table-scroll prob-table"><table class="tw"><thead><tr><th class="rowh" scope="col"></th><th scope="col"><span class="ev-tag">B:</span>' + c.cols[0] + '</th><th scope="col">' + c.cols[1] + '</th><th scope="col" class="total">Total</th></tr></thead><tbody>' +
+    return '<div class="table-scroll prob-table"><table class="tw"><thead><tr><td class="rowh"><span class="sr-only">Group</span></td><th scope="col"><span class="ev-tag">B:</span>' + c.cols[0] + '</th><th scope="col">' + c.cols[1] + '</th><th scope="col" class="total">Total</th></tr></thead><tbody>' +
       '<tr><th class="rowh" scope="row"><span class="ev-tag">A:</span>' + c.rows[0] + '</th><td class="cellv">' + d.a + '</td><td class="cellv">' + d.b + '</td><td class="total">' + d.r1 + '</td></tr>' +
       '<tr><th class="rowh" scope="row">' + c.rows[1] + '</th><td class="cellv">' + d.c + '</td><td class="cellv">' + d.d + '</td><td class="total">' + d.r2 + '</td></tr>' +
       '<tr><th class="rowh total" scope="row">Total</th><td class="total">' + d.c1 + '</td><td class="total">' + d.c2 + '</td><td class="total">' + d.N + '</td></tr></tbody></table></div>';
